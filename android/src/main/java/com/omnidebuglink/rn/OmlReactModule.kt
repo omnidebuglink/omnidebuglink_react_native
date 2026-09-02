@@ -110,14 +110,23 @@ class OmlReactModule(private val reactContext: ReactApplicationContext) :
     return out.toByteArray()
   }
 
-  private fun dispatchTapAt(view: View, xPx: Float, yPx: Float) {
-    val now = SystemClock.uptimeMillis()
-    val down = android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_DOWN, xPx, yPx, 0)
+  private fun dispatchTapAt(view: View, xPx: Float, yPx: Float, onDone: ((Boolean) -> Unit)? = null) {
+    // Real wall-clock gap between DOWN and UP with honest event timestamps —
+    // RN's JS touch pipeline (unlike native View click handling) ignores
+    // synthetic sequences whose UP carries a future eventTime dispatched
+    // back-to-back with DOWN (verified against the android-native client,
+    // where the back-to-back form works fine on plain Views).
+    val downTime = SystemClock.uptimeMillis()
+    val down = android.view.MotionEvent.obtain(downTime, downTime, android.view.MotionEvent.ACTION_DOWN, xPx, yPx, 0)
     view.dispatchTouchEvent(down)
     down.recycle()
-    val up = android.view.MotionEvent.obtain(now, now + TAP_UP_DELAY_MS, android.view.MotionEvent.ACTION_UP, xPx, yPx, 0)
-    view.dispatchTouchEvent(up)
-    up.recycle()
+    view.postDelayed({
+      val upTime = SystemClock.uptimeMillis()
+      val up = android.view.MotionEvent.obtain(downTime, upTime, android.view.MotionEvent.ACTION_UP, xPx, yPx, 0)
+      view.dispatchTouchEvent(up)
+      up.recycle()
+      onDone?.invoke(true)
+    }, TAP_UP_DELAY_MS)
   }
 
   private fun resolveViewByTag(tag: Int): View {
@@ -213,8 +222,9 @@ class OmlReactModule(private val reactContext: ReactApplicationContext) :
       try {
         val view = decorView()
           ?: return@runOnUiThread promise.reject("NO_ACTIVITY", "no foreground activity")
-        dispatchTapAt(view, (x * view.width).toFloat(), (y * view.height).toFloat())
-        promise.resolve(null)
+        dispatchTapAt(view, (x * view.width).toFloat(), (y * view.height).toFloat()) {
+          promise.resolve(null)
+        }
       } catch (e: Exception) {
         promise.reject("TAP_FAILED", e.message, e)
       }
@@ -265,30 +275,32 @@ class OmlReactModule(private val reactContext: ReactApplicationContext) :
         val endY = (y2 * h).toFloat()
         val dur = durationMs.toLong().coerceIn(50, 10_000)
         val steps = (dur / STEP_MS).toInt().coerceIn(2, 120)
-        val now = SystemClock.uptimeMillis()
+        val downTime = SystemClock.uptimeMillis()
 
-        val down = android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_DOWN, startX, startY, 0)
+        val down = android.view.MotionEvent.obtain(downTime, downTime, android.view.MotionEvent.ACTION_DOWN, startX, startY, 0)
         view.dispatchTouchEvent(down)
         down.recycle()
 
-        // Dispatch the whole interpolated trajectory without real delays —
-        // gesture recognizers derive velocity from the event timestamps, not
-        // wall-clock arrival time, and sleeping on the UI thread would jank
-        // the very frames we're driving
-        for (i in 1 until steps) {
-          val t = i.toFloat() / steps
-          val ev = android.view.MotionEvent.obtain(
-            now, now + dur * i / steps, android.view.MotionEvent.ACTION_MOVE,
-            startX + (endX - startX) * t, startY + (endY - startY) * t, 0
-          )
-          view.dispatchTouchEvent(ev)
-          ev.recycle()
+        // Real-interval MOVE dispatch (postDelayed chain, ~16ms cadence): RN's
+        // JS gesture pipeline needs honest timestamps, and ScrollView fling
+        // derives velocity from them — a synchronous burst with future
+        // timestamps behaves differently from real swipes there
+        for (i in 1..steps) {
+          view.postDelayed({
+            val last = i == steps
+            val t = i.toFloat() / steps
+            val px = startX + (endX - startX) * t
+            val py = startY + (endY - startY) * t
+            val ev = android.view.MotionEvent.obtain(
+              downTime, SystemClock.uptimeMillis(),
+              if (last) android.view.MotionEvent.ACTION_UP else android.view.MotionEvent.ACTION_MOVE,
+              px, py, 0
+            )
+            view.dispatchTouchEvent(ev)
+            ev.recycle()
+            if (last) promise.resolve(null)
+          }, dur * i / steps)
         }
-
-        val up = android.view.MotionEvent.obtain(now, now + dur, android.view.MotionEvent.ACTION_UP, endX, endY, 0)
-        view.dispatchTouchEvent(up)
-        up.recycle()
-        promise.resolve(null)
       } catch (e: Exception) {
         promise.reject("SWIPE_FAILED", e.message, e)
       }
@@ -307,15 +319,34 @@ class OmlReactModule(private val reactContext: ReactApplicationContext) :
         if (target.width <= 0 || target.height <= 0) {
           return@runOnUiThread promise.reject("VIEW_INVISIBLE", "target view has no size")
         }
-        // Map target center into decor-view coordinates
+        val doTap = {
+          // Re-resolve center AFTER any scroll settles — coordinates captured
+          // before requestRectangleOnScreen would be stale
+          val targetLoc = IntArray(2)
+          target.getLocationOnScreen(targetLoc)
+          val dvLoc = IntArray(2)
+          dv.getLocationOnScreen(dvLoc)
+          val cx = (targetLoc[0] - dvLoc[0] + target.width / 2f)
+          val cy = (targetLoc[1] - dvLoc[1] + target.height / 2f)
+          val visible = cy >= 0 && cy <= dv.height
+          dispatchTapAt(dv, cx, cy) {
+            promise.resolve(visible)
+          }
+        }
+        // Target scrolled off-screen? Bring it back first — dispatching a
+        // touch at coordinates outside the decor view silently hits nothing
         val targetLoc = IntArray(2)
         target.getLocationOnScreen(targetLoc)
         val dvLoc = IntArray(2)
         dv.getLocationOnScreen(dvLoc)
-        val cx = (targetLoc[0] - dvLoc[0] + target.width / 2f)
-        val cy = (targetLoc[1] - dvLoc[1] + target.height / 2f)
-        dispatchTapAt(dv, cx, cy)
-        promise.resolve(true)
+        val top = targetLoc[1] - dvLoc[1]
+        if (top < 0 || top + target.height > dv.height) {
+          target.requestRectangleOnScreen(android.graphics.Rect(0, 0, target.width, target.height))
+          // standard smooth-scroll animation is ~250ms; tap after it settles
+          dv.postDelayed(doTap, SCROLL_SETTLE_MS)
+        } else {
+          doTap()
+        }
       } catch (e: Exception) {
         promise.reject("CLICK_FAILED", e.message, e)
       }
@@ -435,6 +466,12 @@ class OmlReactModule(private val reactContext: ReactApplicationContext) :
 
       val activities: WritableArray = Arguments.createArray()
       activityStack.snapshot().forEach(activities::pushString)
+      // The module initializes after the host activity's onCreate has already
+      // fired (ReactContext builds inside it), so the very first activity is
+      // never caught by the lifecycle callback — fall back to the live one
+      if (activities.size() == 0) {
+        currentActivity?.let { activities.pushString(it.javaClass.simpleName) }
+      }
       result.putArray("activities", activities)
       promise.resolve(result)
     } catch (e: Exception) {
@@ -561,16 +598,7 @@ class OmlReactModule(private val reactContext: ReactApplicationContext) :
     reactContext.getSharedPreferences("${reactContext.packageName}_preferences", Context.MODE_PRIVATE)
 
   private fun putPrefValue(m: WritableMap, key: String, value: Any?) {
-    val entry = Arguments.createMap()
-    when (value) {
-      is String -> { entry.putString("value", value); entry.putString("valueType", "string") }
-      is Boolean -> { entry.putBoolean("value", value); entry.putString("valueType", "bool") }
-      is Int -> { entry.putDouble("value", value.toDouble()); entry.putString("valueType", "int") }
-      is Long -> { entry.putDouble("value", value.toDouble()); entry.putString("valueType", "long") }
-      is Float -> { entry.putDouble("value", value.toDouble()); entry.putString("valueType", "float") }
-      else -> { entry.putNull("value"); entry.putString("valueType", "string") }
-    }
-    m.putMap(key, entry)
+    m.putMap(key, buildPrefEntry(value))
   }
 
   @ReactMethod
@@ -581,12 +609,25 @@ class OmlReactModule(private val reactContext: ReactApplicationContext) :
         promise.resolve(null)
         return
       }
-      val m = Arguments.createMap()
-      putPrefValue(m, "entry", value)
-      promise.resolve(m.getMap("entry"))
+      // Build the entry map directly — resolving a ReadableNativeMap obtained
+      // from WritableMap.getMap() throws "Cannot convert ReadableNativeMap"
+      promise.resolve(buildPrefEntry(value))
     } catch (e: Exception) {
       promise.reject("PREFS_FAILED", e.message, e)
     }
+  }
+
+  private fun buildPrefEntry(value: Any?): WritableMap {
+    val e = Arguments.createMap()
+    when (value) {
+      is String -> { e.putString("value", value); e.putString("valueType", "string") }
+      is Boolean -> { e.putBoolean("value", value); e.putString("valueType", "bool") }
+      is Int -> { e.putDouble("value", value.toDouble()); e.putString("valueType", "int") }
+      is Long -> { e.putDouble("value", value.toDouble()); e.putString("valueType", "long") }
+      is Float -> { e.putDouble("value", value.toDouble()); e.putString("valueType", "float") }
+      else -> { e.putNull("value"); e.putString("valueType", "string") }
+    }
+    return e
   }
 
   @ReactMethod
@@ -646,6 +687,7 @@ class OmlReactModule(private val reactContext: ReactApplicationContext) :
     private const val MAX_TREE_NODES = 3000
     private const val TAP_UP_DELAY_MS = 80L
     private const val STEP_MS = 16L
+    private const val SCROLL_SETTLE_MS = 320L
     private const val JPEG_START_QUALITY = 82
     private const val JPEG_MIN_QUALITY = 30
     private const val JPEG_QUALITY_STEP = 15
