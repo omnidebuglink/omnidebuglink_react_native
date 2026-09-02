@@ -1,4 +1,4 @@
-// @omnidebuglink/react-native v0.1.0
+// @omnidebuglink/react-native v0.1.1
 
 // src/OmniDebugLink.ts
 import { Platform } from "react-native";
@@ -898,7 +898,7 @@ function registerReloadTask(registry) {
 }
 
 // src/OmniDebugLink.ts
-var LIB_VERSION = "0.1.0";
+var LIB_VERSION = "0.1.1";
 var OmniDebugLink = class {
   constructor(options = {}) {
     this._conn = null;
