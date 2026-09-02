@@ -6,7 +6,7 @@ import { installLogCapture, installErrorCapture, pushLog } from './log-buffer';
 import { setNavigator } from './navigation';
 import type { LogCallback, StateCallback } from './types';
 
-export const LIB_VERSION = '0.1.2';
+export const LIB_VERSION = '0.1.3';
 
 export interface OmniDebugLinkOptions {
   /** Callback for log messages. */

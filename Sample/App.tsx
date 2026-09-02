@@ -54,6 +54,7 @@ export default function App(): React.JSX.Element {
   const [highlightCount, setHighlightCount] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [lastTapped, setLastTapped] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
   const onStart = useCallback(() => {
@@ -217,14 +218,15 @@ export default function App(): React.JSX.Element {
           renderItem={({item, index}) => (
             <TouchableOpacity
               style={styles.listItem}
-              onPress={() =>
-                Alert.alert('FlatList', `点击了 ${item.title}`)
-              }>
+              onPress={() => setLastTapped(item.title)}>
               <Text>{item.title}</Text>
               <Text style={styles.listIndex}>#{index + 1}</Text>
             </TouchableOpacity>
           )}
         />
+        {lastTapped !== null && (
+          <Text style={styles.lastTapped}>最后点击的列表项：{lastTapped}</Text>
+        )}
 
         {/* ── 模态 Modal ───────────────────────────────── */}
         <Text style={styles.h2}>模态 Modal</Text>
@@ -338,6 +340,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#eceff1',
   },
   listIndex: {color: '#90a4ae'},
+  lastTapped: {color: '#1565c0', marginHorizontal: 16, marginTop: 8, fontWeight: '600'},
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.4)',

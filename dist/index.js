@@ -1,4 +1,4 @@
-// @omnidebuglink/react-native v0.1.2
+// @omnidebuglink/react-native v0.1.3
 "use strict";
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -934,7 +934,7 @@ function registerReloadTask(registry) {
 }
 
 // src/OmniDebugLink.ts
-var LIB_VERSION = "0.1.2";
+var LIB_VERSION = "0.1.3";
 var OmniDebugLink = class {
   constructor(options = {}) {
     this._conn = null;
