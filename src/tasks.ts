@@ -140,6 +140,21 @@ function flattenTree(root: OmlNode): { nodes: FlatNode[]; truncated: boolean } {
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/**
+ * Lenient number parse — AI tool-call arguments frequently arrive as
+ * numeric strings ("0.5"), and org.json's optDouble on the android-native
+ * client coerces them transparently; match that behavior so cross-client
+ * callers see identical results. Returns NaN when not coercible.
+ */
+function toNum(v: unknown): number {
+  if (typeof v === 'number') return v;
+  if (typeof v === 'string' && v.trim() !== '') {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return NaN;
+}
+
 // ─── Registration ────────────────────────────────────────────────────────────
 
 export function registerBuiltinTasks(registry: TaskRegistry): void {
@@ -273,10 +288,12 @@ function registerTapScreenTask(registry: TaskRegistry): void {
   registry.register(
     'tap_screen',
     async (payload) => {
-      const x = typeof payload.x === 'number' ? payload.x : NaN;
-      const y = typeof payload.y === 'number' ? payload.y : NaN;
+      const x = toNum(payload.x);
+      const y = toNum(payload.y);
       if (!(x >= 0 && x <= 1) || !(y >= 0 && y <= 1)) {
-        throw new Error('x and y must be normalized [0,1], origin top-left');
+        throw new Error(
+          `x and y must be normalized [0,1], origin top-left — got x=${JSON.stringify(payload.x)}, y=${JSON.stringify(payload.y)}`,
+        );
       }
       await OML.tap(x, y);
       return { tapped: true, x, y };
@@ -300,12 +317,14 @@ function registerLongPressTask(registry: TaskRegistry): void {
   registry.register(
     'long_press',
     async (payload) => {
-      const x = typeof payload.x === 'number' ? payload.x : NaN;
-      const y = typeof payload.y === 'number' ? payload.y : NaN;
+      const x = toNum(payload.x);
+      const y = toNum(payload.y);
       if (!(x >= 0 && x <= 1) || !(y >= 0 && y <= 1)) {
-        throw new Error('x and y must be normalized [0,1], origin top-left');
+        throw new Error(
+          `x and y must be normalized [0,1], origin top-left — got x=${JSON.stringify(payload.x)}, y=${JSON.stringify(payload.y)}`,
+        );
       }
-      const durationMs = typeof payload.durationMs === 'number' ? payload.durationMs : 800;
+      const durationMs = toNum(payload.durationMs) || 800;
       await OML.longPress(x, y, durationMs);
       return { pressed: true, durationMs };
     },
@@ -352,13 +371,17 @@ function registerSwipeTask(registry: TaskRegistry): void {
   registry.register(
     'swipe',
     async (payload) => {
-      const nums = [payload.x1, payload.y1, payload.x2, payload.y2];
-      if (!nums.every((v) => typeof v === 'number' && v >= 0 && v <= 1)) {
-        throw new Error('x1/y1/x2/y2 must all be normalized [0,1], origin top-left');
+      const x1 = toNum(payload.x1);
+      const y1 = toNum(payload.y1);
+      const x2 = toNum(payload.x2);
+      const y2 = toNum(payload.y2);
+      if (![x1, y1, x2, y2].every((v) => v >= 0 && v <= 1)) {
+        throw new Error(
+          `x1/y1/x2/y2 must all be normalized [0,1], origin top-left — got ${JSON.stringify({ x1: payload.x1, y1: payload.y1, x2: payload.x2, y2: payload.y2 })}`,
+        );
       }
-      const durationMs = typeof payload.durationMs === 'number' ? payload.durationMs : 300;
-      await OML.swipe(payload.x1 as number, payload.y1 as number,
-        payload.x2 as number, payload.y2 as number, durationMs);
+      const durationMs = toNum(payload.durationMs) || 300;
+      await OML.swipe(x1, y1, x2, y2, durationMs);
       return { swiped: true };
     },
     'Swipes from (x1,y1) to (x2,y2) over durationMs. Coordinates normalized [0,1], origin top-left. Example — scroll up: {x1:0.5, y1:0.8, x2:0.5, y2:0.2, durationMs:300}.',
