@@ -482,24 +482,31 @@ class OmlReactModule(private val reactContext: ReactApplicationContext) :
           "back" -> {
             val activity = currentActivity
               ?: return@runOnUiThread promise.reject("NO_ACTIVITY", "no foreground activity")
-            // A dialog/overlay (AlertDialog lives in its own window) steals
-            // window focus. In-process dispatchKeyEvent bypasses the system's
-            // focused-window routing, so back would sail past the dialog and
-            // hit the activity's onBackPressed — finishing the activity
-            // under the dialog (verified on device: app appeared to crash).
-            // Refuse instead of misfiring.
-            if (!activity.hasWindowFocus()) {
-              return@runOnUiThread promise.reject(
-                "WINDOW_NOT_FOCUSED",
-                "activity window lost focus (dialog/overlay showing?) — in-process back cannot reach it and would finish the activity instead; dismiss via the dialog's own button (ui_click)"
-              )
-            }
             val now = SystemClock.uptimeMillis()
             val down = KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, 0)
             val up = KeyEvent(now, now + 10, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK, 0)
-            activity.dispatchKeyEvent(down)
-            activity.dispatchKeyEvent(up)
-            promise.resolve(true)
+            if (activity.hasWindowFocus()) {
+              activity.dispatchKeyEvent(down)
+              activity.dispatchKeyEvent(up)
+              promise.resolve(true)
+            } else {
+              // Window focus is held by an overlay (RN <Modal>'s Dialog):
+              // dispatch back on the TOPMOST overlay root instead. The dialog
+              // decor view carries a KeyEvent.Callback — back cancels and
+              // dismisses it, exactly like the system back would.
+              val dvRoot = decorView()
+              val overlay = allWindowRoots().lastOrNull { it !== dvRoot }
+              if (overlay != null) {
+                overlay.dispatchKeyEvent(down)
+                overlay.dispatchKeyEvent(up)
+                promise.resolve(true)
+              } else {
+                return@runOnUiThread promise.reject(
+                  "WINDOW_NOT_FOCUSED",
+                  "activity window lost focus but no overlay window found to receive back"
+                )
+              }
+            }
           }
           "home", "recents" -> {
             val keyCode = if (key == "home") KeyEvent.KEYCODE_HOME else KeyEvent.KEYCODE_APP_SWITCH
