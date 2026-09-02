@@ -126,3 +126,7 @@ When the native module is not linked, native-backed tasks return `TASK_FAILED` w
 
 - Protocol & third-party client guide: [clients/guide/en/third-party-client-guide.md](../guide/en/third-party-client-guide.md)
 - Component development notes: [CLAUDE.md](./CLAUDE.md)
+
+## License
+
+Released under the [MIT License](LICENSE).
