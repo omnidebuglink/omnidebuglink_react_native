@@ -14,6 +14,8 @@ export interface FoundNode {
     /** Normalized [0,1] — directly usable by tap_screen */
     nx: number;
     ny: number;
+    /** "dialog" when the node lives in an overlay window (RN <Modal>) */
+    window?: string;
 }
 export declare function registerBuiltinTasks(registry: TaskRegistry): void;
 //# sourceMappingURL=tasks.d.ts.map

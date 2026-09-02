@@ -81,6 +81,8 @@ export interface OmlNode {
   height: number;
   children?: OmlNode[];
   truncated?: boolean;
+  /** "dialog" when the node lives in an overlay window (RN <Modal>) */
+  window?: string;
 }
 
 export interface OmlScreenshotResult {
@@ -96,6 +98,11 @@ export interface OmlTreeResult {
   windowWidth: number;
   windowHeight: number;
   root: OmlNode;
+  /**
+   * Roots of overlay windows (RN <Modal> Dialogs on Android) stacked above
+   * the activity. Present only when any exist; nodes carry window:"dialog".
+   */
+  overlayRoots?: OmlNode[];
 }
 
 export interface OmlStateResult {

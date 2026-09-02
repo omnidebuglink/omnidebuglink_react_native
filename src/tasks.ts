@@ -54,6 +54,8 @@ export interface FoundNode {
   /** Normalized [0,1] — directly usable by tap_screen */
   nx: number;
   ny: number;
+  /** "dialog" when the node lives in an overlay window (RN <Modal>) */
+  window?: string;
 }
 
 function matches(n: OmlNode, q: FindQuery): boolean {
@@ -68,7 +70,7 @@ function matches(n: OmlNode, q: FindQuery): boolean {
 }
 
 async function findInTree(q: FindQuery): Promise<FoundNode[]> {
-  const { root, windowWidth, windowHeight } = await OML.uiTree();
+  const { root, overlayRoots, windowWidth, windowHeight } = await OML.uiTree();
   const out: FoundNode[] = [];
   const walk = (n: OmlNode) => {
     if (matches(n, q)) {
@@ -82,11 +84,13 @@ async function findInTree(q: FindQuery): Promise<FoundNode[]> {
         centerY: cy,
         nx: windowWidth > 0 ? cx / windowWidth : 0,
         ny: windowHeight > 0 ? cy / windowHeight : 0,
+        window: n.window,
       });
     }
     n.children?.forEach(walk);
   };
   walk(root);
+  overlayRoots?.forEach(walk);
   return out;
 }
 
@@ -121,7 +125,7 @@ interface FlatNode extends Omit<OmlNode, 'children'> {
   path: string;
 }
 
-function flattenTree(root: OmlNode): { nodes: FlatNode[]; truncated: boolean } {
+function flattenTree(root: OmlNode, overlays: OmlNode[]): { nodes: FlatNode[]; truncated: boolean } {
   const nodes: FlatNode[] = [];
   let truncated = false;
   const walk = (n: OmlNode, depth: number, path: string) => {
@@ -135,6 +139,7 @@ function flattenTree(root: OmlNode): { nodes: FlatNode[]; truncated: boolean } {
     children?.forEach((c, i) => walk(c, depth + 1, `${path}/${i}`));
   };
   walk(root, 0, '');
+  overlays.forEach((o, i) => walk(o, 0, `#o${i}`));
   return { nodes, truncated };
 }
 
@@ -236,7 +241,7 @@ function registerUiTraverseTask(registry: TaskRegistry): void {
       const flat = payload.flat !== false;
       const tree = await OML.uiTree();
       if (!flat) return tree;
-      const { nodes, truncated } = flattenTree(tree.root);
+      const { nodes, truncated } = flattenTree(tree.root, tree.overlayRoots ?? []);
       return {
         windowWidth: tree.windowWidth,
         windowHeight: tree.windowHeight,
@@ -245,7 +250,7 @@ function registerUiTraverseTask(registry: TaskRegistry): void {
         nodes,
       };
     },
-    'Dumps the native view hierarchy. Default flat:true returns a flat node list with depth and path ("/0/2" = child indexes) — much cheaper token-wise; flat:false returns the nested tree (3000 node cap). Node: { id, type, text?, hint?, desc?, x, y, width, height }. Coordinates are absolute screen pixels, origin top-left. The id of RN views is the React tag — pass it as fieldId to ui_click/input_text.',
+    'Dumps the native view hierarchy. Default flat:true returns a flat node list with depth and path ("/0/2" = child indexes; "#o0..." = overlay window such as an open RN <Modal>) — much cheaper token-wise; flat:false returns the nested tree (3000 node cap). Node: { id, type, text?, hint?, desc?, x, y, width, height, window? }. Coordinates are absolute screen pixels, origin top-left. The id of RN views is the React tag — pass it as fieldId to ui_click/input_text.',
     {
       type: 'object',
       properties: {

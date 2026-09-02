@@ -110,6 +110,56 @@ class OmlReactModule(private val reactContext: ReactApplicationContext) :
     return out.toByteArray()
   }
 
+  // ── multi-window support ────────────────────────────────────────────────
+
+  /**
+   * RN <Modal> (and any Dialog) lives in its OWN window with its own root
+   * view — not in the activity's tree. Enumerate every window root in this
+   * process via WindowManagerGlobal so screenshot/uiTree/touch can see them.
+   * Order = window add order; later entries stack on top. Hidden-API
+   * reflection (greylist, same technique LeakCanary uses) — on failure this
+   * degrades to the single activity root and behavior matches the old
+   * single-window build.
+   */
+  private fun allWindowRoots(): List<View> {
+    val activityRoot = decorView()
+    return try {
+      val wmgClass = Class.forName("android.view.WindowManagerGlobal")
+      val wmg = wmgClass.getMethod("getInstance").invoke(null)
+      val field = wmgClass.getDeclaredField("mViews")
+      field.isAccessible = true
+      @Suppress("UNCHECKED_CAST")
+      val views = field.get(wmg) as? ArrayList<View>
+      if (views.isNullOrEmpty()) {
+        listOfNotNull(activityRoot)
+      } else {
+        views.filter { it.visibility == View.VISIBLE }
+      }
+    } catch (t: Throwable) {
+      listOfNotNull(activityRoot)
+    }
+  }
+
+  /**
+   * Pick which window a touch at screen coords should go to: topmost first
+   * (list tail = top of z-order), first root whose on-screen bounds contain
+   * the point. Coordinates are converted into that root's local space.
+   */
+  private fun touchTargetRoot(xPx: Float, yPx: Float): Triple<View, Float, Float>? {
+    val roots = allWindowRoots()
+    for (i in roots.indices.reversed()) {
+      val root = roots[i]
+      val loc = IntArray(2)
+      root.getLocationOnScreen(loc)
+      val lx = xPx - loc[0]
+      val ly = yPx - loc[1]
+      if (lx >= 0 && ly >= 0 && lx < root.width && ly < root.height) {
+        return Triple(root, lx, ly)
+      }
+    }
+    return null
+  }
+
   private fun dispatchTapAt(view: View, xPx: Float, yPx: Float, onDone: ((Boolean) -> Unit)? = null) {
     // Real wall-clock gap between DOWN and UP with honest event timestamps —
     // RN's JS touch pipeline (unlike native View click handling) ignores
@@ -148,8 +198,18 @@ class OmlReactModule(private val reactContext: ReactApplicationContext) :
         if (view.width <= 0 || view.height <= 0) {
           return@runOnUiThread promise.reject("NO_SURFACE", "decor view has no size yet")
         }
+        // Compose EVERY window bottom-up so RN <Modal> (own Dialog window)
+        // shows up — drawing just the activity root used to skip it
         val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
-        view.draw(Canvas(bitmap))
+        val canvas = Canvas(bitmap)
+        for (root in allWindowRoots()) {
+          val loc = IntArray(2)
+          root.getLocationOnScreen(loc)
+          canvas.save()
+          canvas.translate(-loc[0].toFloat(), -loc[1].toFloat())
+          root.draw(canvas)
+          canvas.restore()
+        }
         val result = encodeJpegWithinBudget(bitmap)
         bitmap.recycle()
         promise.resolve(result)
@@ -165,13 +225,26 @@ class OmlReactModule(private val reactContext: ReactApplicationContext) :
   fun uiTree(promise: Promise) {
     UiThreadUtil.runOnUiThread {
       try {
-        val root = decorView()
+        val base = decorView()
           ?: return@runOnUiThread promise.reject("NO_ACTIVITY", "no foreground activity")
         val counter = intArrayOf(0)
         val result = Arguments.createMap()
-        result.putInt("windowWidth", root.width)
-        result.putInt("windowHeight", root.height)
-        result.putMap("root", dumpView(root, counter))
+        result.putInt("windowWidth", base.width)
+        result.putInt("windowHeight", base.height)
+        result.putMap("root", dumpView(base, counter))
+        // RN <Modal> content lives in Dialog windows outside the activity
+        // tree — expose each as an overlayRoot so find/ui_click can reach it
+        val roots = allWindowRoots()
+        val overlays = roots.filter { it !== base }
+        if (overlays.isNotEmpty()) {
+          val arr = Arguments.createArray()
+          for (o in overlays) {
+            val m = dumpView(o, counter)
+            m.putString("window", "dialog")
+            arr.pushMap(m)
+          }
+          result.putArray("overlayRoots", arr)
+        }
         promise.resolve(result)
       } catch (e: Exception) {
         promise.reject("UITREE_FAILED", e.message, e)
@@ -220,9 +293,13 @@ class OmlReactModule(private val reactContext: ReactApplicationContext) :
   fun tap(x: Double, y: Double, promise: Promise) {
     UiThreadUtil.runOnUiThread {
       try {
-        val view = decorView()
+        val dv = decorView()
           ?: return@runOnUiThread promise.reject("NO_ACTIVITY", "no foreground activity")
-        dispatchTapAt(view, (x * view.width).toFloat(), (y * view.height).toFloat()) {
+        // Route to the TOPMOST window covering the point — an open RN <Modal>
+        // (own Dialog window) must win over the activity content beneath it
+        val target = touchTargetRoot((x * dv.width).toFloat(), (y * dv.height).toFloat())
+          ?: return@runOnUiThread promise.reject("NO_TOUCH_TARGET", "no window covers the requested point")
+        dispatchTapAt(target.first, target.second, target.third) {
           promise.resolve(null)
         }
       } catch (e: Exception) {
@@ -237,18 +314,21 @@ class OmlReactModule(private val reactContext: ReactApplicationContext) :
   fun longPress(x: Double, y: Double, durationMs: Double, promise: Promise) {
     UiThreadUtil.runOnUiThread {
       try {
-        val view = decorView()
+        val dv = decorView()
           ?: return@runOnUiThread promise.reject("NO_ACTIVITY", "no foreground activity")
-        val px = (x * view.width).toFloat()
-        val py = (y * view.height).toFloat()
+        val target = touchTargetRoot((x * dv.width).toFloat(), (y * dv.height).toFloat())
+          ?: return@runOnUiThread promise.reject("NO_TOUCH_TARGET", "no window covers the requested point")
+        val root = target.first
+        val px = target.second
+        val py = target.third
         val hold = durationMs.toLong().coerceIn(100, 10_000)
         val now = SystemClock.uptimeMillis()
         val down = android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_DOWN, px, py, 0)
-        view.dispatchTouchEvent(down)
+        root.dispatchTouchEvent(down)
         // Hold without sleeping the UI thread — post the UP after the delay
-        view.postDelayed({
+        root.postDelayed({
           val up = android.view.MotionEvent.obtain(now, SystemClock.uptimeMillis(), android.view.MotionEvent.ACTION_UP, px, py, 0)
-          view.dispatchTouchEvent(up)
+          root.dispatchTouchEvent(up)
           up.recycle()
           promise.resolve(null)
         }, hold)
@@ -265,14 +345,21 @@ class OmlReactModule(private val reactContext: ReactApplicationContext) :
   fun swipe(x1: Double, y1: Double, x2: Double, y2: Double, durationMs: Double, promise: Promise) {
     UiThreadUtil.runOnUiThread {
       try {
-        val view = decorView()
+        val dv = decorView()
           ?: return@runOnUiThread promise.reject("NO_ACTIVITY", "no foreground activity")
-        val w = view.width.toFloat()
-        val h = view.height.toFloat()
-        val startX = (x1 * w).toFloat()
-        val startY = (y1 * h).toFloat()
-        val endX = (x2 * w).toFloat()
-        val endY = (y2 * h).toFloat()
+        val w = dv.width.toFloat()
+        val h = dv.height.toFloat()
+        // The gesture belongs to whichever window the STARTING point is on —
+        // one gesture must not cross windows
+        val target = touchTargetRoot((x1 * w).toFloat(), (y1 * h).toFloat())
+          ?: return@runOnUiThread promise.reject("NO_TOUCH_TARGET", "no window covers the swipe start point")
+        val view = target.first
+        val loc = IntArray(2)
+        view.getLocationOnScreen(loc)
+        val startX = ((x1 * w) - loc[0]).toFloat()
+        val startY = ((y1 * h) - loc[1]).toFloat()
+        val endX = ((x2 * w) - loc[0]).toFloat()
+        val endY = ((y2 * h) - loc[1]).toFloat()
         val dur = durationMs.toLong().coerceIn(50, 10_000)
         val steps = (dur / STEP_MS).toInt().coerceIn(2, 120)
         val downTime = SystemClock.uptimeMillis()
@@ -321,32 +408,41 @@ class OmlReactModule(private val reactContext: ReactApplicationContext) :
         }
         val doTap = {
           // Re-resolve center AFTER any scroll settles — coordinates captured
-          // before requestRectangleOnScreen would be stale
+          // before requestRectangleOnScreen would be stale.
+          // Dispatch on the root of the view's OWN window: a target inside
+          // RN <Modal> lives in a Dialog window and would never be hit
+          // through the activity decor view.
+          val root = target.rootView
+          val targetLoc = IntArray(2)
+          target.getLocationOnScreen(targetLoc)
+          val rootLoc = IntArray(2)
+          root.getLocationOnScreen(rootLoc)
+          val cx = (targetLoc[0] - rootLoc[0] + target.width / 2f)
+          val cy = (targetLoc[1] - rootLoc[1] + target.height / 2f)
+          val inDialog = root !== dv
+          dispatchTapAt(root, cx, cy) {
+            // visibility bound only meaningful in the activity window;
+            // dialog content is always "on screen" for hit purposes
+            promise.resolve(inDialog || (cy >= 0 && cy <= root.height))
+          }
+        }
+        // Off-screen bring-back only applies to activity-window targets —
+        // dialog windows don't participate in the activity's scroll
+        val inDialogWindow = target.rootView !== dv
+        if (!inDialogWindow) {
           val targetLoc = IntArray(2)
           target.getLocationOnScreen(targetLoc)
           val dvLoc = IntArray(2)
           dv.getLocationOnScreen(dvLoc)
-          val cx = (targetLoc[0] - dvLoc[0] + target.width / 2f)
-          val cy = (targetLoc[1] - dvLoc[1] + target.height / 2f)
-          val visible = cy >= 0 && cy <= dv.height
-          dispatchTapAt(dv, cx, cy) {
-            promise.resolve(visible)
+          val top = targetLoc[1] - dvLoc[1]
+          if (top < 0 || top + target.height > dv.height) {
+            target.requestRectangleOnScreen(android.graphics.Rect(0, 0, target.width, target.height))
+            // standard smooth-scroll animation is ~250ms; tap after it settles
+            dv.postDelayed(doTap, SCROLL_SETTLE_MS)
+            return@runOnUiThread
           }
         }
-        // Target scrolled off-screen? Bring it back first — dispatching a
-        // touch at coordinates outside the decor view silently hits nothing
-        val targetLoc = IntArray(2)
-        target.getLocationOnScreen(targetLoc)
-        val dvLoc = IntArray(2)
-        dv.getLocationOnScreen(dvLoc)
-        val top = targetLoc[1] - dvLoc[1]
-        if (top < 0 || top + target.height > dv.height) {
-          target.requestRectangleOnScreen(android.graphics.Rect(0, 0, target.width, target.height))
-          // standard smooth-scroll animation is ~250ms; tap after it settles
-          dv.postDelayed(doTap, SCROLL_SETTLE_MS)
-        } else {
-          doTap()
-        }
+        doTap()
       } catch (e: Exception) {
         promise.reject("CLICK_FAILED", e.message, e)
       }

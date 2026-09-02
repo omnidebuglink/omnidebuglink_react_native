@@ -1,4 +1,4 @@
-// @omnidebuglink/react-native v0.1.3
+// @omnidebuglink/react-native v0.1.4
 "use strict";
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -446,7 +446,7 @@ function matches(n, q) {
   return q.id !== void 0 || q.text !== void 0 || q.type !== void 0;
 }
 async function findInTree(q) {
-  const { root, windowWidth, windowHeight } = await OML.uiTree();
+  const { root, overlayRoots, windowWidth, windowHeight } = await OML.uiTree();
   const out = [];
   const walk = (n) => {
     if (matches(n, q)) {
@@ -459,12 +459,14 @@ async function findInTree(q) {
         centerX: cx,
         centerY: cy,
         nx: windowWidth > 0 ? cx / windowWidth : 0,
-        ny: windowHeight > 0 ? cy / windowHeight : 0
+        ny: windowHeight > 0 ? cy / windowHeight : 0,
+        window: n.window
       });
     }
     n.children?.forEach(walk);
   };
   walk(root);
+  overlayRoots?.forEach(walk);
   return out;
 }
 async function locateOne(payload) {
@@ -490,7 +492,7 @@ var LOCATE_SCHEMA = {
   type: { type: "string", description: "Substring of view type to locate by" },
   index: { type: "integer", minimum: 0, default: 0, description: "Disambiguator when multiple nodes match" }
 };
-function flattenTree(root) {
+function flattenTree(root, overlays) {
   const nodes = [];
   let truncated = false;
   const walk = (n, depth, path) => {
@@ -504,6 +506,7 @@ function flattenTree(root) {
     children?.forEach((c, i) => walk(c, depth + 1, `${path}/${i}`));
   };
   walk(root, 0, "");
+  overlays.forEach((o, i) => walk(o, 0, `#o${i}`));
   return { nodes, truncated };
 }
 var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -583,7 +586,7 @@ function registerUiTraverseTask(registry) {
       const flat = payload.flat !== false;
       const tree = await OML.uiTree();
       if (!flat) return tree;
-      const { nodes, truncated } = flattenTree(tree.root);
+      const { nodes, truncated } = flattenTree(tree.root, tree.overlayRoots ?? []);
       return {
         windowWidth: tree.windowWidth,
         windowHeight: tree.windowHeight,
@@ -592,7 +595,7 @@ function registerUiTraverseTask(registry) {
         nodes
       };
     },
-    'Dumps the native view hierarchy. Default flat:true returns a flat node list with depth and path ("/0/2" = child indexes) \u2014 much cheaper token-wise; flat:false returns the nested tree (3000 node cap). Node: { id, type, text?, hint?, desc?, x, y, width, height }. Coordinates are absolute screen pixels, origin top-left. The id of RN views is the React tag \u2014 pass it as fieldId to ui_click/input_text.',
+    'Dumps the native view hierarchy. Default flat:true returns a flat node list with depth and path ("/0/2" = child indexes; "#o0..." = overlay window such as an open RN <Modal>) \u2014 much cheaper token-wise; flat:false returns the nested tree (3000 node cap). Node: { id, type, text?, hint?, desc?, x, y, width, height, window? }. Coordinates are absolute screen pixels, origin top-left. The id of RN views is the React tag \u2014 pass it as fieldId to ui_click/input_text.',
     {
       type: "object",
       properties: {
@@ -945,7 +948,7 @@ function registerReloadTask(registry) {
 }
 
 // src/OmniDebugLink.ts
-var LIB_VERSION = "0.1.3";
+var LIB_VERSION = "0.1.4";
 var OmniDebugLink = class {
   constructor(options = {}) {
     this._conn = null;
