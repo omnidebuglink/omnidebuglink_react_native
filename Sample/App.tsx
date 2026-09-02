@@ -1,9 +1,12 @@
 /**
- * OmniDebugLink React Native Sample — 常用控件大杂烩
+ * OmniDebugLink React Native Sample — common-control gallery.
  *
- * 顶部：SDK 连接配置（token 输入 + 连接/断开 + actionsEnabled 开关 + 状态）
- * 下方：RN 常用控件各一区，供 ui_traverse / find_objects / ui_click /
- *       input_text / send_key / screenshot 等远程调试 task 练手。
+ * Top: SDK connection panel (token input + connect/disconnect +
+ * actionsEnabled switch + status). Below: one section per common RN
+ * control, as a practice target for ui_traverse / find_objects /
+ * ui_click / input_text / send_key / screenshot and friends.
+ * (UI strings are intentionally Chinese — the sample doubles as a
+ * realistic debugging target for Chinese-language apps.)
  */
 import React, {useCallback, useRef, useState} from 'react';
 import {
@@ -44,7 +47,8 @@ export default function App(): React.JSX.Element {
   const [connected, setConnected] = useState(false);
   const [actionsEnabled, setActionsEnabled] = useState(true);
 
-  // 各控件状态 —— AI 远程操作的靶子
+  // Per-control state — targets for AI-driven remote actions.
+  // (UI strings stay Chinese: the sample doubles as a realistic target.)
   const [controlledText, setControlledText] = useState('受控输入的初始值');
   const [uncontrolledText, setUncontrolledText] = useState('');
   const [switchValue, setSwitchValue] = useState(false);
@@ -85,7 +89,7 @@ export default function App(): React.JSX.Element {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }>
-        {/* ── SDK 连接配置 ─────────────────────────────── */}
+        {/* — SDK connection panel —————————————————————————————————————————— */}
         <Text style={styles.h1}>OmniDebugLink Sample</Text>
         <TextInput
           style={styles.tokenInput}
@@ -118,7 +122,7 @@ export default function App(): React.JSX.Element {
           状态：{connected ? '已连接（token 被顶替会自动停机）' : '未连接'}
         </Text>
 
-        {/* ── 文本 ─────────────────────────────────────── */}
+        {/* — Text —————————————————————————————————————————————————————————— */}
         <Text style={styles.h2}>文本 Text</Text>
         <Text style={styles.bold}>加粗文本</Text>
         <Text style={styles.colorText}>彩色文本</Text>
@@ -126,7 +130,7 @@ export default function App(): React.JSX.Element {
           这是一段很长的文本会被截断显示一行，测试 numberOfLines 属性的表现
         </Text>
 
-        {/* ── 输入 ─────────────────────────────────────── */}
+        {/* — Input ————————————————————————————————————————————————————————— */}
         <Text style={styles.h2}>输入 TextInput</Text>
         <Text>受控输入（value 由 state 驱动）：{controlledText}</Text>
         <TextInput
@@ -154,7 +158,7 @@ export default function App(): React.JSX.Element {
           multiline
         />
 
-        {/* ── 按钮 ─────────────────────────────────────── */}
+        {/* — Buttons ——————————————————————————————————————————————————————— */}
         <Text style={styles.h2}>按钮</Text>
         <Button
           title={`Button：点击了 ${pressCount} 次`}
@@ -180,7 +184,7 @@ export default function App(): React.JSX.Element {
           <Text>TouchableHighlight：{highlightCount} 次</Text>
         </TouchableHighlight>
 
-        {/* ── 开关 ─────────────────────────────────────── */}
+        {/* — Switch ———————————————————————————————————————————————————————— */}
         <Text style={styles.h2}>开关 Switch</Text>
         <View style={styles.row}>
           <Text>开关状态：{switchValue ? '开' : '关'}</Text>
@@ -191,7 +195,7 @@ export default function App(): React.JSX.Element {
           />
         </View>
 
-        {/* ── 指示器 / 加载 ────────────────────────────── */}
+        {/* — Indicator / loading ——————————————————————————————————————————— */}
         <Text style={styles.h2}>指示器 ActivityIndicator</Text>
         <View style={styles.row}>
           <Button
@@ -201,14 +205,14 @@ export default function App(): React.JSX.Element {
           {loading && <ActivityIndicator size="large" color="#1565c0" />}
         </View>
 
-        {/* ── 图片 ─────────────────────────────────────── */}
+        {/* — Image ————————————————————————————————————————————————————————— */}
         <Text style={styles.h2}>图片 Image</Text>
         <Image
           source={{uri: 'https://reactnative.dev/img/tiny_logo.png'}}
           style={styles.image}
         />
 
-        {/* ── 列表 FlatList（独立滚动容器） ─────────────── */}
+        {/* — FlatList (its own scroll container) ——————————————————————————— */}
         <Text style={styles.h2}>列表 FlatList</Text>
         <FlatList
           data={DATA}
@@ -228,7 +232,7 @@ export default function App(): React.JSX.Element {
           <Text style={styles.lastTapped}>最后点击的列表项：{lastTapped}</Text>
         )}
 
-        {/* ── 模态 Modal ───────────────────────────────── */}
+        {/* — Modal ————————————————————————————————————————————————————————— */}
         <Text style={styles.h2}>模态 Modal</Text>
         <Button
           title="打开 Modal"
