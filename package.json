@@ -1,0 +1,28 @@
+{
+  "name": "@omnidebuglink/react-native",
+  "version": "0.1.0",
+  "description": "OmniDebugLink React Native client SDK",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src",
+    "android",
+    "ios",
+    "OmniDebugLinkReactNative.podspec",
+    "README.md"
+  ],
+  "repository": "https://github.com/omnidebuglink/omnidebuglink_react_native",
+  "license": "MIT",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "esbuild": "^0.28.0"
+  },
+  "peerDependencies": {
+    "react-native": ">=0.70.0"
+  }
+}
