@@ -8,6 +8,45 @@ import type { LogCallback, StateCallback } from './types';
 
 export const LIB_VERSION = '0.1.6';
 
+/**
+ * Process-level random instance id, generated once at module load and reused
+ * for the lifetime of the JS runtime — across reconnects and stop()/start()
+ * cycles alike. Sent as the `instance` query param on the /ws URL so the
+ * server can tell this process's own reconnects (old socket closed as a
+ * normal disconnect, keep reconnecting) from a foreign session taking over
+ * the token (close code 4000, fail loud — handled in LinkConnection).
+ *
+ * Hermes does not guarantee the full WebCrypto surface, so feature-detect:
+ * crypto.randomUUID → crypto.getRandomValues hex → Math.random fallback.
+ * RN's TS setup has no DOM lib, hence the manual typing of globalThis.crypto.
+ */
+const INSTANCE_ID: string = (() => {
+  const cryptoApi = (
+    globalThis as unknown as {
+      crypto?: {
+        randomUUID?: () => string;
+        getRandomValues?: (array: Uint8Array) => Uint8Array;
+      };
+    }
+  ).crypto;
+  if (typeof cryptoApi?.randomUUID === 'function') {
+    return cryptoApi.randomUUID();
+  }
+  if (typeof cryptoApi?.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16);
+    cryptoApi.getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  // Math.random fallback (Hermes without WebCrypto): 16 random bytes as hex.
+  let hex = '';
+  for (let i = 0; i < 16; i++) {
+    hex += Math.floor(Math.random() * 256)
+      .toString(16)
+      .padStart(2, '0');
+  }
+  return hex;
+})();
+
 export interface OmniDebugLinkOptions {
   /** Callback for log messages. */
   onLog?: LogCallback;
@@ -62,7 +101,7 @@ export class OmniDebugLink {
     if (this._conn) {
       this.stop();
     }
-    const url = `wss://api.omnidebuglink.dev/ws?token=${token}`;
+    const url = `wss://api.omnidebuglink.dev/ws?token=${token}&instance=${encodeURIComponent(INSTANCE_ID)}`;
     this._conn = new LinkConnection({
       url,
       registry: this.registry,

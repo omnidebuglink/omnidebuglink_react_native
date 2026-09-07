@@ -982,6 +982,22 @@ function registerReloadTask(registry) {
 
 // src/OmniDebugLink.ts
 var LIB_VERSION = "0.1.6";
+var INSTANCE_ID = (() => {
+  const cryptoApi = globalThis.crypto;
+  if (typeof cryptoApi?.randomUUID === "function") {
+    return cryptoApi.randomUUID();
+  }
+  if (typeof cryptoApi?.getRandomValues === "function") {
+    const bytes = new Uint8Array(16);
+    cryptoApi.getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  let hex = "";
+  for (let i = 0; i < 16; i++) {
+    hex += Math.floor(Math.random() * 256).toString(16).padStart(2, "0");
+  }
+  return hex;
+})();
 var OmniDebugLink = class {
   constructor(options = {}) {
     this._conn = null;
@@ -1017,7 +1033,7 @@ var OmniDebugLink = class {
     if (this._conn) {
       this.stop();
     }
-    const url = `wss://api.omnidebuglink.dev/ws?token=${token}`;
+    const url = `wss://api.omnidebuglink.dev/ws?token=${token}&instance=${encodeURIComponent(INSTANCE_ID)}`;
     this._conn = new LinkConnection({
       url,
       registry: this.registry,
