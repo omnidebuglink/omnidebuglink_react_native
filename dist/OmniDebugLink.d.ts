@@ -1,7 +1,7 @@
 import { TaskRegistry } from './TaskRegistry';
 import { setNavigator } from './navigation';
 import type { LogCallback, StateCallback } from './types';
-export declare const LIB_VERSION = "0.1.5";
+export declare const LIB_VERSION = "0.1.6";
 export interface OmniDebugLinkOptions {
     /** Callback for log messages. */
     onLog?: LogCallback;

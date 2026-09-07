@@ -47,6 +47,23 @@ client.registry.register(
 client.stop();
 ```
 
+> ### ⚠️ Do not call `start()` in release builds
+>
+> `start()` opens a debug channel that can inspect and drive your app, and
+> its client token is embedded in the bundle. Keep it out of production:
+> gate the call on `__DEV__`, or remove it from release bundles.
+>
+> Every connection with the same token kicks the previous one offline, and
+> being kicked **terminates the app by design** (the SDK exits via the native
+> bridge; see `start(token)`/`stop()` below). If `start()` ships in a release
+> build, your users' sessions will be terminated and any loss that results is
+> on you, not on OmniDebugLink.
+>
+> One `OmniDebugLink` instance per process. Creating a second instance that
+> connects with the same token kicks the first one, and the kicked instance
+> exits the app by design — this includes dev-time double initialization
+> (e.g. re-running module top-level code under Fast Refresh).
+
 ## API
 
 ### `new OmniDebugLink(options?)`
@@ -61,7 +78,7 @@ The constructor also installs `ErrorUtils.setGlobalHandler` so global JS errors 
 
 ### `start(token)` / `stop()`
 
-Connects to `wss://api.omnidebuglink.dev/ws?token=<token>`. Automatic exponential-backoff reconnect (1s→30s); **close code 4000 (token replaced) stops permanently**.
+Connects to `wss://api.omnidebuglink.dev/ws?token=<token>`. Automatic exponential-backoff reconnect (1s→30s); **close code 4000 (token replaced) stops permanently and exits the app** via the native bridge — a live token in a release build must not stay silent.
 
 ### `setActionsEnabled(bool)`
 

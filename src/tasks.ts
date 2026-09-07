@@ -34,6 +34,9 @@ const OML: OmlNativeModule = nativeModule ?? {
   prefsSet: () => nativeUnavailable('prefs'),
   prefsDelete: () => nativeUnavailable('prefs'),
   prefsList: () => nativeUnavailable('prefs'),
+  // Never routed through this stub: LinkConnection resolves the native module
+  // itself and degrades to a log entry when it is missing.
+  exitApp: () => {},
 };
 
 // ─── Tree helpers (shared by ui_traverse / find_objects / wait_for / ui_click) ─

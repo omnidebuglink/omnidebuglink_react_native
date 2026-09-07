@@ -19,8 +19,9 @@ export declare class LinkConnection {
     private readonly _onLog;
     private readonly _onStateChange;
     private _ws;
-    private _reconnecting;
     private _replaced;
+    /** stop() was called by the host app — a late 4000 must not exit the process then. */
+    private _stoppedByUser;
     private _backoffMs;
     private readonly _HEARTBEAT_MS;
     private readonly _WATCHDOG_MS;
@@ -33,6 +34,12 @@ export declare class LinkConnection {
     stop(): void;
     private _reconnect;
     private _open;
+    /**
+     * Fail loud after a 4000: the process exits so a token that was accidentally
+     * shipped in a release build cannot keep the debug channel alive silently.
+     * RN JS has no way to quit the app itself — goes through the native bridge.
+     */
+    private _exitAfterReplaced;
     private _scheduleReconnect;
     private _closeWs;
     private _sendHello;

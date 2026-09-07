@@ -65,4 +65,6 @@ RCT_EXTERN_METHOD(prefsDelete:(nonnull NSString *)key
 RCT_EXTERN_METHOD(prefsList:(RCTPromiseResolveBlock)resolve
                     reject:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(exitApp)
+
 @end

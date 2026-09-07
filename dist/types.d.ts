@@ -148,5 +148,11 @@ export interface OmlNativeModule {
     prefsList(): Promise<{
         entries: Record<string, OmlPrefsEntry>;
     }>;
+    /**
+     * Hard-stop the host process. Invoked after a close 4000 (token claimed by
+     * another connection) so a token shipped in a release build cannot keep the
+     * debug channel alive silently. Native side: exitProcess(0) / exit(0).
+     */
+    exitApp(): void;
 }
 //# sourceMappingURL=types.d.ts.map

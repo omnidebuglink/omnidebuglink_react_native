@@ -1,4 +1,4 @@
-// @omnidebuglink/react-native v0.1.5
+// @omnidebuglink/react-native v0.1.6
 "use strict";
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -37,7 +37,7 @@ __export(index_exports, {
 module.exports = __toCommonJS(index_exports);
 
 // src/OmniDebugLink.ts
-var import_react_native2 = require("react-native");
+var import_react_native3 = require("react-native");
 
 // src/TaskRegistry.ts
 var ACTION_DISABLED = "ACTION_DISABLED";
@@ -121,6 +121,9 @@ var TaskRegistry = class {
   }
 };
 
+// src/LinkConnection.ts
+var import_react_native = require("react-native");
+
 // src/types.ts
 var CLOSE_CODE_REPLACED = 4e3;
 
@@ -129,8 +132,9 @@ var CLOSE_CODE = 4e3;
 var LinkConnection = class {
   constructor(opts) {
     this._ws = null;
-    this._reconnecting = false;
     this._replaced = false;
+    /** stop() was called by the host app — a late 4000 must not exit the process then. */
+    this._stoppedByUser = false;
     this._backoffMs = 1e3;
     this._HEARTBEAT_MS = 55e3;
     this._WATCHDOG_MS = 18e4;
@@ -158,9 +162,11 @@ var LinkConnection = class {
   }
   start() {
     this._replaced = false;
+    this._stoppedByUser = false;
     this._reconnect();
   }
   stop() {
+    this._stoppedByUser = true;
     this._replaced = true;
     this._closeWs(true);
     this._clearHeartbeat();
@@ -172,15 +178,17 @@ var LinkConnection = class {
     this._open();
   }
   _open() {
+    let ws;
     try {
-      this._ws = new WebSocket(this._url);
+      ws = new WebSocket(this._url);
+      this._ws = ws;
     } catch (e) {
       this._onLog(`WebSocket open failed: ${e}`);
       this._scheduleReconnect();
       return;
     }
-    this._ws.binaryType = "arraybuffer";
-    this._ws.onopen = () => {
+    ws.binaryType = "arraybuffer";
+    ws.onopen = () => {
       this._onLog("connected");
       this._backoffMs = 1e3;
       this._lastInbound = Date.now();
@@ -188,26 +196,46 @@ var LinkConnection = class {
       this._sendHello();
       this._startHeartbeat();
     };
-    this._ws.onmessage = (event) => {
+    ws.onmessage = (event) => {
       this._lastInbound = Date.now();
       if (typeof event.data !== "string") return;
       this._handleFrame(event.data);
     };
-    this._ws.onerror = () => {
+    ws.onerror = () => {
       this._onLog(`websocket error`);
     };
-    this._ws.onclose = (event) => {
+    ws.onclose = (event) => {
+      if (this._ws !== ws) return;
       this._clearHeartbeat();
       this._setConnected(false);
       this._ws = null;
       if (event.code === CLOSE_CODE_REPLACED) {
         this._replaced = true;
-        this._onLog("TOKEN REPLACED (close 4000) \u2014 stopping reconnects");
+        this._onLog(
+          "TOKEN REPLACED (close 4000) \u2014 another client just connected with the same device token. One token pair belongs to ONE device. Exiting the app now; if this is a release build, remove OmniDebugLink.start() from it."
+        );
+        if (!this._stoppedByUser) this._exitAfterReplaced();
         return;
       }
       if (this._replaced) return;
       this._scheduleReconnect();
     };
+  }
+  /**
+   * Fail loud after a 4000: the process exits so a token that was accidentally
+   * shipped in a release build cannot keep the debug channel alive silently.
+   * RN JS has no way to quit the app itself — goes through the native bridge.
+   */
+  _exitAfterReplaced() {
+    const native = import_react_native.NativeModules.OmlReactModule;
+    if (native && typeof native.exitApp === "function") {
+      try {
+        native.exitApp();
+      } catch {
+      }
+    } else {
+      this._onLog("exitApp unavailable (native side not linked) \u2014 staying stopped");
+    }
   }
   _scheduleReconnect() {
     if (this._replaced || this._ws !== null) return;
@@ -319,6 +347,7 @@ var LinkConnection = class {
     if (now - this._lastInbound > this._WATCHDOG_MS) {
       this._onLog("watchdog: server silent >180s, dropping");
       this._closeWs(false);
+      this._scheduleReconnect();
       return;
     }
     this._send('{"v":1,"type":"ping"}');
@@ -329,7 +358,7 @@ var LinkConnection = class {
 };
 
 // src/tasks.ts
-var import_react_native = require("react-native");
+var import_react_native2 = require("react-native");
 
 // src/log-buffer.ts
 var MAX_LINES = 500;
@@ -412,7 +441,7 @@ function getNavigatorState() {
 }
 
 // src/tasks.ts
-var nativeModule = import_react_native.NativeModules.OmlReactModule;
+var nativeModule = import_react_native2.NativeModules.OmlReactModule;
 function nativeUnavailable(method) {
   throw new Error(
     `${method}: OmlReactModule not linked. Install the native side \u2014 Android: android/ (Gradle autolink), iOS: OmniDebugLinkReactNative.podspec (pod install). See README.`
@@ -433,7 +462,11 @@ var OML = nativeModule ?? {
   prefsGet: () => nativeUnavailable("prefs"),
   prefsSet: () => nativeUnavailable("prefs"),
   prefsDelete: () => nativeUnavailable("prefs"),
-  prefsList: () => nativeUnavailable("prefs")
+  prefsList: () => nativeUnavailable("prefs"),
+  // Never routed through this stub: LinkConnection resolves the native module
+  // itself and degrades to a log entry when it is missing.
+  exitApp: () => {
+  }
 };
 function matches(n, q) {
   if (q.id !== void 0 && n.id === q.id) return true;
@@ -934,7 +967,7 @@ function registerReloadTask(registry) {
   registry.register(
     "reload",
     async () => {
-      const DevSettings = import_react_native.NativeModules.DevSettings;
+      const DevSettings = import_react_native2.NativeModules.DevSettings;
       if (!DevSettings?.reload) {
         throw new Error("DevSettings.reload unavailable in this build");
       }
@@ -948,7 +981,7 @@ function registerReloadTask(registry) {
 }
 
 // src/OmniDebugLink.ts
-var LIB_VERSION = "0.1.5";
+var LIB_VERSION = "0.1.6";
 var OmniDebugLink = class {
   constructor(options = {}) {
     this._conn = null;
@@ -989,7 +1022,7 @@ var OmniDebugLink = class {
       url,
       registry: this.registry,
       libVersion: LIB_VERSION,
-      platform: import_react_native2.Platform.OS,
+      platform: import_react_native3.Platform.OS,
       // 'ios' | 'android'
       onLog: this._onLog,
       onStateChange: this._onStateChange

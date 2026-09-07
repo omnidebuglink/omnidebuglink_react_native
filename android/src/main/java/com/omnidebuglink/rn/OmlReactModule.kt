@@ -34,6 +34,7 @@ import com.facebook.react.bridge.WritableMap
 import com.facebook.react.uimanager.UIManagerModule
 import com.facebook.react.views.textinput.ReactEditText
 import java.io.ByteArrayOutputStream
+import kotlin.system.exitProcess
 
 /**
  * OmniDebugLink platform bridge.
@@ -786,6 +787,16 @@ class OmlReactModule(private val reactContext: ReactApplicationContext) :
     } catch (e: Exception) {
       promise.reject("PREFS_FAILED", e.message, e)
     }
+  }
+
+  /**
+   * Close 4000 landed: this token was claimed by another connection. Hard-stop
+   * the process so a token shipped in a release build cannot keep the debug
+   * channel alive silently. JS has no way to quit the app, hence the bridge.
+   */
+  @ReactMethod
+  fun exitApp() {
+    exitProcess(0)
   }
 
   // ── misc ────────────────────────────────────────────────────────────────

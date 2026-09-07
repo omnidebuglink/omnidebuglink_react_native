@@ -1,5 +1,6 @@
+import { NativeModules } from 'react-native';
 import { TaskRegistry } from './TaskRegistry';
-import type { LogCallback, StateCallback, HelloFrame, ResultFrame } from './types';
+import type { LogCallback, StateCallback, HelloFrame, ResultFrame, OmlNativeModule } from './types';
 import { CLOSE_CODE_REPLACED } from './types';
 
 export const CLOSE_CODE = 4000;
@@ -24,8 +25,9 @@ export class LinkConnection {
   private readonly _onStateChange: StateCallback;
 
   private _ws: WebSocket | null = null;
-  private _reconnecting = false;
   private _replaced = false;
+  /** stop() was called by the host app — a late 4000 must not exit the process then. */
+  private _stoppedByUser = false;
   private _backoffMs = 1000;
   private readonly _HEARTBEAT_MS = 55_000;
   private readonly _WATCHDOG_MS = 180_000;
@@ -54,10 +56,12 @@ export class LinkConnection {
 
   start(): void {
     this._replaced = false;
+    this._stoppedByUser = false;
     this._reconnect();
   }
 
   stop(): void {
+    this._stoppedByUser = true;
     this._replaced = true;
     this._closeWs(true);
     this._clearHeartbeat();
@@ -71,17 +75,19 @@ export class LinkConnection {
   }
 
   private _open(): void {
+    let ws: WebSocket;
     try {
-      this._ws = new WebSocket(this._url);
+      ws = new WebSocket(this._url);
+      this._ws = ws;
     } catch (e) {
       this._onLog(`WebSocket open failed: ${e}`);
       this._scheduleReconnect();
       return;
     }
 
-    this._ws.binaryType = 'arraybuffer';
+    ws.binaryType = 'arraybuffer';
 
-    this._ws.onopen = () => {
+    ws.onopen = () => {
       this._onLog('connected');
       this._backoffMs = 1000;
       this._lastInbound = Date.now();
@@ -90,30 +96,58 @@ export class LinkConnection {
       this._startHeartbeat();
     };
 
-    this._ws.onmessage = (event: WebSocketMessageEvent) => {
+    ws.onmessage = (event: WebSocketMessageEvent) => {
       this._lastInbound = Date.now();
       if (typeof event.data !== 'string') return;
       this._handleFrame(event.data);
     };
 
-    this._ws.onerror = () => {
+    ws.onerror = () => {
       this._onLog(`websocket error`);
     };
 
-    this._ws.onclose = (event: WebSocketCloseEvent) => {
+    ws.onclose = (event: WebSocketCloseEvent) => {
+      // Generational guard: events from a socket we already abandoned (a new
+      // attempt replaced it) are irrelevant — the server kicks the OLD socket
+      // with 4000 when our own reconnect took the seat, and that must not be
+      // mistaken for a real takeover by another device.
+      if (this._ws !== ws) return;
       this._clearHeartbeat();
       this._setConnected(false);
       this._ws = null;
 
       if (event.code === CLOSE_CODE_REPLACED) {
         this._replaced = true;
-        this._onLog('TOKEN REPLACED (close 4000) — stopping reconnects');
+        this._onLog(
+          'TOKEN REPLACED (close 4000) — another client just connected with the same ' +
+            'device token. One token pair belongs to ONE device. Exiting the app now; ' +
+            'if this is a release build, remove OmniDebugLink.start() from it.',
+        );
+        if (!this._stoppedByUser) this._exitAfterReplaced();
         return;
       }
 
       if (this._replaced) return;
       this._scheduleReconnect();
     };
+  }
+
+  /**
+   * Fail loud after a 4000: the process exits so a token that was accidentally
+   * shipped in a release build cannot keep the debug channel alive silently.
+   * RN JS has no way to quit the app itself — goes through the native bridge.
+   */
+  private _exitAfterReplaced(): void {
+    const native = NativeModules.OmlReactModule as OmlNativeModule | undefined;
+    if (native && typeof native.exitApp === 'function') {
+      try {
+        native.exitApp();
+      } catch {
+        // bridge already torn down; the log above is the trace
+      }
+    } else {
+      this._onLog('exitApp unavailable (native side not linked) — staying stopped');
+    }
   }
 
   private _scheduleReconnect(): void {
@@ -244,7 +278,10 @@ export class LinkConnection {
     const now = Date.now();
     if (now - this._lastInbound > this._WATCHDOG_MS) {
       this._onLog('watchdog: server silent >180s, dropping');
+      // _closeWs nulls this._ws, so the late onclose for this socket dies on
+      // the generational guard — the reconnect must be scheduled here.
       this._closeWs(false);
+      this._scheduleReconnect();
       return;
     }
     this._send('{"v":1,"type":"ping"}');

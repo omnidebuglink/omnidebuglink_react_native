@@ -617,6 +617,14 @@ class OmlReactModule: NSObject {
     }
     resolve(out)
   }
+
+  /// Close 4000 landed: this token was claimed by another connection. Hard-stop
+  /// the process so a token shipped in a release build cannot keep the debug
+  /// channel alive silently. JS has no way to quit the app, hence the bridge.
+  @objc(exitApp)
+  func exitApp() {
+    exit(0)
+  }
 }
 
 /// Responder-chain hook: when UIApplication.sendAction(to: nil) dispatches
