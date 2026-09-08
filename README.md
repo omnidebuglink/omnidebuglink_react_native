@@ -47,11 +47,13 @@ client.registry.register(
 client.stop();
 ```
 
-> ### ⚠️ Do not call `start()` in release builds
+> ### ⚠️ Never call `start()` unconditionally — and never embed a token in a release build
 >
-> `start()` opens a debug channel that can inspect and drive your app, and
-> its client token is embedded in the bundle. Keep it out of production:
-> gate the call on `__DEV__`, or remove it from release bundles.
+> `start()` opens a debug channel that can inspect and drive your app.
+> **Debug builds**: start freely — gate the call on `__DEV__`.
+> **Release builds**: only behind a runtime condition — a token issued by your
+> own backend to an authorized account, never one baked into the bundle
+> ([production pattern](https://github.com/omnidebuglink/omnidebuglink/blob/main/sdk-integration.md#production--conditional-debugging)).
 >
 > Every connection with the same token kicks the previous one offline, and
 > being kicked **terminates the app by design** (the SDK exits via the native
@@ -141,7 +143,7 @@ When the native module is not linked, native-backed tasks return `TASK_FAILED` w
 
 ## Docs
 
-- Protocol & third-party client guide: [clients/guide/en/third-party-client-guide.md](../guide/en/third-party-client-guide.md)
+- Protocol & third-party client guide: [omnidebuglink/omnidebuglink](https://github.com/omnidebuglink/omnidebuglink/blob/main/third-party-client-guide.md)
 - Component development notes: [CLAUDE.md](./CLAUDE.md)
 
 ## License
