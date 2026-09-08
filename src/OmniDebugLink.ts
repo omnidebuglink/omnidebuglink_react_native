@@ -6,7 +6,7 @@ import { installLogCapture, installErrorCapture, pushLog } from './log-buffer';
 import { setNavigator } from './navigation';
 import type { LogCallback, StateCallback } from './types';
 
-export const LIB_VERSION = '0.1.6';
+export const LIB_VERSION = '0.1.7';
 
 /**
  * Process-level random instance id, generated once at module load and reused

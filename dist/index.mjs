@@ -1,4 +1,4 @@
-// @omnidebuglink/react-native v0.1.6
+// @omnidebuglink/react-native v0.1.7
 
 // src/OmniDebugLink.ts
 import { Platform } from "react-native";
@@ -945,7 +945,7 @@ function registerReloadTask(registry) {
 }
 
 // src/OmniDebugLink.ts
-var LIB_VERSION = "0.1.6";
+var LIB_VERSION = "0.1.7";
 var INSTANCE_ID = (() => {
   const cryptoApi = globalThis.crypto;
   if (typeof cryptoApi?.randomUUID === "function") {

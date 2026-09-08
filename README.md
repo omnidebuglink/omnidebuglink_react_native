@@ -5,7 +5,7 @@ OmniDebugLink React Native client SDK — bring AI-powered remote debugging to y
 ## Install (GitHub git dependency, not published to npm)
 
 ```bash
-npm install omnidebuglink/omnidebuglink_react_native#v0.1.5
+npm install omnidebuglink/omnidebuglink_react_native#v0.1.7
 cd ios && pod install        # iOS autolinking (RN 0.60+); Android is automatic
 ```
 
@@ -13,7 +13,7 @@ Or pin it in `package.json`:
 
 ```json
 "dependencies": {
-  "@omnidebuglink/react-native": "omnidebuglink/omnidebuglink_react_native#v0.1.5"
+  "@omnidebuglink/react-native": "omnidebuglink/omnidebuglink_react_native#v0.1.7"
 }
 ```
 
